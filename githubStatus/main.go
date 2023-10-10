@@ -1,8 +1,9 @@
 package main
 
+// echo '{githubStatus{post(accessToken: "foo", state: "pending")}}' | dagger query
+
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,7 +16,7 @@ const (
 type GithubStatus struct{}
 
 type GithubStatusOpts struct {
-	AccessToken Secret
+	AccessToken string
 	Owner       string
 	Repo        string
 	Sha         string
@@ -32,7 +33,14 @@ type githubStatus struct {
 	Context     string `json:"context,omitempty"`
 }
 
-func (m *GithubStatus) Post(ctx context.Context, opts GithubStatusOpts) error {
+type GithubStatusOutput struct {
+	Success bool `json:"success"`
+}
+
+// GithubStatusOutput needs at least one function to become a valid type for GraphQL
+func (o *GithubStatusOutput) Banane() {}
+
+func (m *GithubStatus) Post(opts GithubStatusOpts) (*GithubStatusOutput, error) {
 
 	url := fmt.Sprintf(statusAPIURL, opts.Owner, opts.Repo, opts.Sha)
 
@@ -52,7 +60,7 @@ func (m *GithubStatus) Post(ctx context.Context, opts GithubStatusOpts) error {
 
 	_, isStateValid := validStates[status.State]
 	if isStateValid == false {
-		return fmt.Errorf("state (%s) should be \"error\", \"failure\", \"pending\" or \"success\"", status.State)
+		return &GithubStatusOutput{Success: false}, fmt.Errorf("state (%s) should be error, failure, pending or success", status.State)
 	}
 
 	if status.Context == "" {
@@ -62,33 +70,28 @@ func (m *GithubStatus) Post(ctx context.Context, opts GithubStatusOpts) error {
 	// Marshal the status into JSON
 	statusBytes, err := json.Marshal(status)
 	if err != nil {
-		return fmt.Errorf("unable to marshal status: %w", err)
+		return &GithubStatusOutput{Success: false}, fmt.Errorf("unable to marshal status: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(statusBytes))
 	if err != nil {
-		return fmt.Errorf("unable to create request: %w", err)
+		return &GithubStatusOutput{Success: false}, fmt.Errorf("unable to create request: %w", err)
 	}
 
-	token, err := opts.AccessToken.Plaintext(ctx)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Authorization", "Bearer "+opts.AccessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to make request: %w", err)
+		return &GithubStatusOutput{Success: false}, fmt.Errorf("failed to make request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return &GithubStatusOutput{Success: false}, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return nil
+	return &GithubStatusOutput{Success: true}, nil
 }

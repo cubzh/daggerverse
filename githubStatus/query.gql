@@ -1,0 +1,12 @@
+{
+	githubStatus {
+		post(
+			owner: "cubzh"
+			repo: "cubzh"
+			sha: "cubzh"
+			accessToken: "foo"
+			state: "pending"
+			description: ""
+		){ success }
+	}
+}
